@@ -13,6 +13,7 @@ from xhtml2pdf import pisa
 from io import BytesIO
 from demo_data import get_demo_parcel_data, get_demo_research_memo, SAMPLE_APNS
 from rentcast_api import fetch_rentcast_property
+import re
 
 # Set page config first (must be the first Streamlit command)
 st.set_page_config(
@@ -135,6 +136,9 @@ def normalize_parcel_data(raw_data: dict, apn: str = None, address: str = None) 
         zoning=zoning,
         source_url=source_url
     )
+
+def break_url_for_pdf(url: str) -> str:
+    return re.sub(r'([/?&=])', r'\1<wbr>', url)
 
 def main():
     st.title("🏢 Commercial Property Ownership Research Agent")
@@ -328,6 +332,7 @@ def create_pdf_download(memo_content: str, parcel_data: ParcelModel) -> bytes:
         sale_price_display = str(parcel_data.sale_price)
     else:
         sale_price_display = "No recent sale"
+    source_url_html = break_url_for_pdf(parcel_data.source_url)
     html_content = f"""
     <html>
     <head>
@@ -371,7 +376,7 @@ def create_pdf_download(memo_content: str, parcel_data: ParcelModel) -> bytes:
                 <tr><th class="label">Sale Price</th><td>{sale_price_display}</td></tr>
                 <tr><th class="label">Mailing Address</th><td>{parcel_data.mailing_address}</td></tr>
                 <tr><th class="label">Legal Description</th><td>{parcel_data.legal_description}</td></tr>
-                <tr><th class="label">Source</th><td><a href='{parcel_data.source_url}'>{parcel_data.source_url}</a></td></tr>
+                <tr><th class="label">Source</th><td><a href='{parcel_data.source_url}'>Maps</a></td></tr>
             </table>
         </div>
         <div class="section">

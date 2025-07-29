@@ -61,18 +61,68 @@ def fetch_property_data(apn: str = None, address: str = None, use_demo: bool = F
         return get_demo_parcel_data(apn or "123-45-678")
     return fetch_rentcast_property(address=address, apn=apn)
 
+def safe_str(val):
+    if isinstance(val, dict):
+        # Prefer formattedAddress for mailing address dicts
+        if 'formattedAddress' in val:
+            return val['formattedAddress']
+        return ", ".join(f"{k}: {safe_str(v)}" for k, v in val.items())
+    if isinstance(val, list):
+        return ", ".join(safe_str(v) for v in val)
+    if val is None:
+        return "Unknown"
+    return str(val)
+
 def normalize_parcel_data(raw_data: dict, apn: str = None, address: str = None) -> ParcelModel:
-    # RentCast property fields: https://www.rentcast.io/api/docs#/properties/get_properties
-    owner = raw_data.get("owner_name", "Unknown")
-    mailing_address = raw_data.get("mailing_address", "Unknown")
-    apn_val = raw_data.get("parcel_number", apn or "Unknown")
-    parcel_size = f"{raw_data.get('lot_size_sqft', 'Unknown')} sqft"
-    legal_description = raw_data.get("legal_description", "Unknown")
-    valuation = f"${raw_data.get('property_value', 'Unknown'):,}" if raw_data.get('property_value') else "Unknown"
-    sale_date = raw_data.get("last_sale_date", None)
-    sale_price = raw_data.get("last_sale_price", None)
-    zoning = raw_data.get("zoning", "Unknown")
-    source_url = raw_data.get("rentcast_url", "https://rentcast.io")
+    # Owner
+    owner = "Unknown"
+    if "owner" in raw_data:
+        o = raw_data["owner"]
+        if isinstance(o, dict) and "names" in o:
+            owner = ", ".join(safe_str(n) for n in o["names"])
+        elif isinstance(o, str):
+            owner = o
+        else:
+            owner = safe_str(o)
+
+    # Mailing address
+    mailing_address = "Unknown"
+    if "owner" in raw_data and isinstance(raw_data["owner"], dict):
+        m = raw_data["owner"].get("mailingAddress")
+        if m:
+            mailing_address = safe_str(m.get("formattedAddress") or m)
+    if mailing_address == "Unknown":
+        mailing_address = safe_str(raw_data.get("formattedAddress") or f"{raw_data.get('city', '')}, {raw_data.get('state', '')}")
+
+    # APN
+    apn_val = safe_str(raw_data.get("assessorID") or raw_data.get("parcel_number") or apn or "Unknown")
+
+    # Parcel size
+    lot_size = raw_data.get("lotSize") or raw_data.get("lot_size_sqft")
+    parcel_size = f"{safe_str(lot_size)} sqft" if lot_size else "Unknown sqft"
+
+    # Legal description
+    legal_description = safe_str(raw_data.get("legalDescription") or raw_data.get("legal_description") or raw_data.get("legal_desc") or "Unknown")
+
+    # Valuation (use latest year in taxAssessments)
+    valuation = "Unknown"
+    tax_assessments = raw_data.get("taxAssessments")
+    if isinstance(tax_assessments, dict) and tax_assessments:
+        latest_year = max(tax_assessments.keys(), key=lambda y: int(y))
+        val = tax_assessments[latest_year].get("value")
+        if val:
+            valuation = f"${val:,.0f}"
+
+    # Sale info
+    sale_date = safe_str(raw_data.get("lastSaleDate") or raw_data.get("last_sale_date") or "Unknown")
+    sale_price = "Unknown"  # Not present in sample
+
+    # Zoning
+    zoning = safe_str(raw_data.get("zoning") or raw_data.get("zoning_code") or "Unknown")
+
+    # Source URL (Google Maps link)
+    source_url = f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(raw_data.get('formattedAddress', ''))}" if raw_data.get("formattedAddress") else "https://rentcast.io"
+
     return ParcelModel(
         owner=owner,
         mailing_address=mailing_address,
@@ -193,7 +243,14 @@ def main():
             with col2:
                 st.metric("Parcel Size", parcel_data.parcel_size)
                 st.metric("Sale Date", parcel_data.sale_date or "No recent sale")
-                st.metric("Sale Price", f"${parcel_data.sale_price:,}" if parcel_data.sale_price else "No recent sale")
+                # Robust sale price formatting
+                if isinstance(parcel_data.sale_price, (int, float)):
+                    sale_price_display = f"${parcel_data.sale_price:,}"
+                elif parcel_data.sale_price and parcel_data.sale_price not in ("Unknown", "None"):
+                    sale_price_display = str(parcel_data.sale_price)
+                else:
+                    sale_price_display = "No recent sale"
+                st.metric("Sale Price", sale_price_display)
                 st.metric("Source", "RentCast API")
             st.markdown("### Mailing Address")
             st.info(parcel_data.mailing_address)
@@ -202,6 +259,9 @@ def main():
         with tab3:
             st.markdown("## Raw API Data")
             st.json(raw_data)
+            st.markdown("---")
+            st.markdown("> **Debug: Raw RentCast Property Dict**")
+            st.code(json.dumps(raw_data, indent=2))
     else:
         st.markdown("""
         ## Welcome to the Commercial Property Research Agent
@@ -261,6 +321,13 @@ def generate_research_memo(parcel_data: ParcelModel, raw_data: dict, use_demo: b
         return get_demo_research_memo()
 
 def create_pdf_download(memo_content: str, parcel_data: ParcelModel) -> bytes:
+    # Robust sale price formatting for PDF
+    if isinstance(parcel_data.sale_price, (int, float)):
+        sale_price_display = f"${parcel_data.sale_price:,}"
+    elif parcel_data.sale_price and parcel_data.sale_price not in ("Unknown", "None"):
+        sale_price_display = str(parcel_data.sale_price)
+    else:
+        sale_price_display = "No recent sale"
     html_content = f"""
     <html>
     <head>
@@ -268,20 +335,34 @@ def create_pdf_download(memo_content: str, parcel_data: ParcelModel) -> bytes:
             body {{ font-family: Arial, sans-serif; margin: 40px; }}
             h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; }}
             h2 {{ color: #34495e; margin-top: 30px; }}
-            .property-info {{ background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }}
-            .property-info h3 {{ margin-top: 0; color: #2c3e50; }}
+            .section {{ margin-bottom: 30px; }}
+            .property-table {{ border-collapse: collapse; width: 100%; margin-top: 10px; }}
+            .property-table th, .property-table td {{ border: 1px solid #ddd; padding: 8px; }}
+            .property-table th {{ background-color: #f2f2f2; text-align: left; }}
+            .label {{ font-weight: bold; color: #2c3e50; }}
         </style>
     </head>
     <body>
         <h1>Commercial Property Research Memo</h1>
-        <div class="property-info">
-            <h3>Property Information</h3>
-            <p><strong>APN:</strong> {parcel_data.apn}</p>
-            <p><strong>Owner:</strong> {parcel_data.owner}</p>
-            <p><strong>Valuation:</strong> {parcel_data.valuation}</p>
-            <p><strong>Generated:</strong> {datetime.now().strftime('%B %d, %Y')}</p>
+        <div class="section">
+            <h2>Property Information</h2>
+            <table class="property-table">
+                <tr><th class="label">APN</th><td>{parcel_data.apn}</td></tr>
+                <tr><th class="label">Owner</th><td>{parcel_data.owner}</td></tr>
+                <tr><th class="label">Valuation</th><td>{parcel_data.valuation}</td></tr>
+                <tr><th class="label">Zoning</th><td>{parcel_data.zoning}</td></tr>
+                <tr><th class="label">Parcel Size</th><td>{parcel_data.parcel_size}</td></tr>
+                <tr><th class="label">Sale Date</th><td>{parcel_data.sale_date or 'No recent sale'}</td></tr>
+                <tr><th class="label">Sale Price</th><td>{sale_price_display}</td></tr>
+                <tr><th class="label">Mailing Address</th><td>{parcel_data.mailing_address}</td></tr>
+                <tr><th class="label">Legal Description</th><td>{parcel_data.legal_description}</td></tr>
+                <tr><th class="label">Source</th><td><a href='{parcel_data.source_url}'>{parcel_data.source_url}</a></td></tr>
+            </table>
         </div>
-        {markdown.markdown(memo_content)}
+        <div class="section">
+            <h2>Research Memo</h2>
+            {markdown.markdown(memo_content)}
+        </div>
     </body>
     </html>
     """
@@ -290,6 +371,13 @@ def create_pdf_download(memo_content: str, parcel_data: ParcelModel) -> bytes:
     return pdf_buffer.getvalue()
 
 def create_csv_download(parcel_data: ParcelModel) -> str:
+    # Robust sale price formatting for CSV
+    if isinstance(parcel_data.sale_price, (int, float)):
+        sale_price_display = f"${parcel_data.sale_price:,}"
+    elif parcel_data.sale_price and parcel_data.sale_price not in ("Unknown", "None"):
+        sale_price_display = str(parcel_data.sale_price)
+    else:
+        sale_price_display = "No recent sale"
     df = pd.DataFrame([{
         'APN': parcel_data.apn,
         'Owner': parcel_data.owner,
@@ -298,7 +386,7 @@ def create_csv_download(parcel_data: ParcelModel) -> str:
         'Legal_Description': parcel_data.legal_description,
         'Valuation': parcel_data.valuation,
         'Sale_Date': parcel_data.sale_date,
-        'Sale_Price': parcel_data.sale_price,
+        'Sale_Price': sale_price_display,
         'Zoning': parcel_data.zoning,
         'Source_URL': parcel_data.source_url
     }])

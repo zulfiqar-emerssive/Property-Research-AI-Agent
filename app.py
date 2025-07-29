@@ -332,14 +332,29 @@ def create_pdf_download(memo_content: str, parcel_data: ParcelModel) -> bytes:
     <html>
     <head>
         <style>
-            body {{ font-family: Arial, sans-serif; margin: 40px; }}
-            h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; }}
-            h2 {{ color: #34495e; margin-top: 30px; }}
-            .section {{ margin-bottom: 30px; }}
-            .property-table {{ border-collapse: collapse; width: 100%; margin-top: 10px; }}
-            .property-table th, .property-table td {{ border: 1px solid #ddd; padding: 8px; }}
-            .property-table th {{ background-color: #f2f2f2; text-align: left; }}
+            body {{ font-family: Arial, sans-serif; margin: 32px; }}
+            h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; margin-bottom: 12px; }}
+            h2 {{ color: #34495e; margin-top: 18px; margin-bottom: 8px; }}
+            .section {{ margin-bottom: 18px; }}
+            .property-table {{ border-collapse: collapse; width: 100%; margin-top: 6px; }}
+            .property-table th, .property-table td {{ border: 1px solid #ddd; padding: 6px 8px; vertical-align: top; }}
+            .property-table th {{ background-color: #f2f2f2; text-align: left; width: 160px; }}
             .label {{ font-weight: bold; color: #2c3e50; }}
+            .property-table td a {{
+                color: #1a0dab;
+                word-break: break-all;
+                white-space: pre-wrap;
+                text-decoration: underline;
+            }}
+            .property-table td {{
+                word-break: break-all;
+                white-space: pre-wrap;
+            }}
+            /* Reduce spacing in markdown */
+            .section p, .section ul, .section ol, .section li {{
+                margin-top: 2px;
+                margin-bottom: 2px;
+            }}
         </style>
     </head>
     <body>
@@ -361,7 +376,9 @@ def create_pdf_download(memo_content: str, parcel_data: ParcelModel) -> bytes:
         </div>
         <div class="section">
             <h2>Research Memo</h2>
-            {markdown.markdown(memo_content)}
+            <div style="margin:0; padding:0;">
+                {markdown.markdown(memo_content, extensions=['extra'])}
+            </div>
         </div>
     </body>
     </html>

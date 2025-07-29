@@ -97,12 +97,13 @@ def main():
             "Select input method:",
             ["Address", "APN"]
         )
+        address_input = None
+        apn_input = None
         if input_method == "Address":
             address_input = st.text_input(
                 "Enter Property Address:",
                 placeholder="e.g., 123 Main St, Phoenix, AZ 85001"
             )
-            apn_input = None
             if demo_mode:
                 st.markdown("**Sample Addresses:**")
                 sample_addresses = [
@@ -119,7 +120,6 @@ def main():
                 "Enter APN (Assessor's Parcel Number):",
                 placeholder="e.g., 205-03-224"
             )
-            address_input = None
             if demo_mode:
                 st.markdown("**Sample APNs:**")
                 for apn in SAMPLE_APNS:
@@ -140,66 +140,68 @@ def main():
         if not apn_input and not address_input:
             st.error("Please enter either an address or APN.")
             return
-        if apn_input or address_input:
-            with st.spinner("🔍 Fetching property data..."):
-                raw_data = fetch_property_data(apn=apn_input, address=address_input, use_demo=demo_mode)
-                if not raw_data:
-                    st.error("Failed to fetch data. Please check your input and try again.")
-                    return
-                is_real_data = not demo_mode
-                if is_real_data:
-                    st.success("🎉 Using REAL data from RentCast API!")
-                else:
-                    st.info("🎭 Using DEMO data for demonstration purposes.")
-                parcel_data = normalize_parcel_data(raw_data, apn_input, address_input)
-                with st.spinner("🤖 Generating research memo..."):
-                    memo_content = generate_research_memo(parcel_data, raw_data, use_demo=demo_mode)
-                st.success("✅ Research completed successfully!")
-                if is_real_data:
-                    st.info("📊 Data Source: RentCast API (Real Data)")
-                else:
-                    st.info("📊 Data Source: Demo Data (Sample Information)")
-                tab1, tab2, tab3 = st.tabs(["📄 Research Memo", "📊 Property Data", "📦 Raw API Data"])
-                with tab1:
-                    st.markdown("## Research Memo")
-                    st.markdown(memo_content)
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        pdf_data = create_pdf_download(memo_content, parcel_data)
-                        st.download_button(
-                            label="📥 Download PDF",
-                            data=pdf_data,
-                            file_name=f"property_research_{parcel_data.apn.replace('-', '_')}.pdf",
-                            mime="application/pdf"
-                        )
-                    with col2:
-                        csv_data = create_csv_download(parcel_data)
-                        st.download_button(
-                            label="📥 Download CSV",
-                            data=csv_data,
-                            file_name=f"property_data_{parcel_data.apn.replace('-', '_')}.csv",
-                            mime="text/csv"
-                        )
-                with tab2:
-                    st.markdown("## Property Information")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("APN", parcel_data.apn)
-                        st.metric("Owner", parcel_data.owner)
-                        st.metric("Valuation", parcel_data.valuation)
-                        st.metric("Zoning", parcel_data.zoning)
-                    with col2:
-                        st.metric("Parcel Size", parcel_data.parcel_size)
-                        st.metric("Sale Date", parcel_data.sale_date or "No recent sale")
-                        st.metric("Sale Price", f"${parcel_data.sale_price:,}" if parcel_data.sale_price else "No recent sale")
-                        st.metric("Source", "RentCast API")
-                    st.markdown("### Mailing Address")
-                    st.info(parcel_data.mailing_address)
-                    st.markdown("### Legal Description")
-                    st.text_area("Legal Description", parcel_data.legal_description, height=100, disabled=True)
-                with tab3:
-                    st.markdown("## Raw API Data")
-                    st.json(raw_data)
+        # Guarantee only one is set
+        if input_method == "Address":
+            raw_data = fetch_property_data(apn=None, address=address_input, use_demo=demo_mode)
+        else:
+            raw_data = fetch_property_data(apn=apn_input, address=None, use_demo=demo_mode)
+        if not raw_data:
+            st.error("Failed to fetch data. Please check your input and try again.")
+            return
+        is_real_data = not demo_mode
+        if is_real_data:
+            st.success("🎉 Using REAL data from RentCast API!")
+        else:
+            st.info("🎭 Using DEMO data for demonstration purposes.")
+        parcel_data = normalize_parcel_data(raw_data, apn_input, address_input)
+        with st.spinner("🤖 Generating research memo..."):
+            memo_content = generate_research_memo(parcel_data, raw_data, use_demo=demo_mode)
+        st.success("✅ Research completed successfully!")
+        if is_real_data:
+            st.info("📊 Data Source: RentCast API (Real Data)")
+        else:
+            st.info("📊 Data Source: Demo Data (Sample Information)")
+        tab1, tab2, tab3 = st.tabs(["📄 Research Memo", "📊 Property Data", "📦 Raw API Data"])
+        with tab1:
+            st.markdown("## Research Memo")
+            st.markdown(memo_content)
+            col1, col2 = st.columns(2)
+            with col1:
+                pdf_data = create_pdf_download(memo_content, parcel_data)
+                st.download_button(
+                    label="📥 Download PDF",
+                    data=pdf_data,
+                    file_name=f"property_research_{parcel_data.apn.replace('-', '_')}.pdf",
+                    mime="application/pdf"
+                )
+            with col2:
+                csv_data = create_csv_download(parcel_data)
+                st.download_button(
+                    label="📥 Download CSV",
+                    data=csv_data,
+                    file_name=f"property_data_{parcel_data.apn.replace('-', '_')}.csv",
+                    mime="text/csv"
+                )
+        with tab2:
+            st.markdown("## Property Information")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("APN", parcel_data.apn)
+                st.metric("Owner", parcel_data.owner)
+                st.metric("Valuation", parcel_data.valuation)
+                st.metric("Zoning", parcel_data.zoning)
+            with col2:
+                st.metric("Parcel Size", parcel_data.parcel_size)
+                st.metric("Sale Date", parcel_data.sale_date or "No recent sale")
+                st.metric("Sale Price", f"${parcel_data.sale_price:,}" if parcel_data.sale_price else "No recent sale")
+                st.metric("Source", "RentCast API")
+            st.markdown("### Mailing Address")
+            st.info(parcel_data.mailing_address)
+            st.markdown("### Legal Description")
+            st.text_area("Legal Description", parcel_data.legal_description, height=100, disabled=True)
+        with tab3:
+            st.markdown("## Raw API Data")
+            st.json(raw_data)
     else:
         st.markdown("""
         ## Welcome to the Commercial Property Research Agent
